@@ -3,49 +3,86 @@ import numpy as np
 from sklearn.preprocessing import MinMaxScaler, LabelEncoder
 from sklearn.decomposition import PCA
 import sys
+import os
+import requests
+import gzip
+import shutil
 
 # CONFIGURATION
-# We limit to 2000 events to keep the simulation fast on a laptop
 SAMPLE_SIZE = 2000 
 NUM_CLIENTS = 2
-CSV_PATH = "atlas-higgs-challenge-2014-v2.csv"
+CSV_FILENAME = "atlas-higgs-challenge-2014-v2.csv"
+# Direct link to the CERN Open Data Portal file (Gzipped)
+DATA_URL = "http://opendata.cern.ch/record/328/files/atlas-higgs-challenge-2014-v2.csv.gz"
 
-def process_higgs_data():
-    print(f"[DATA ENGINEER] 🧹 Loading ATLAS Higgs Dataset from {CSV_PATH}...")
+def download_and_extract():
+    """Downloads the dataset from CERN if it doesn't exist."""
+    if os.path.exists(CSV_FILENAME):
+        print(f"[DATA ENGINEER] ✅ Dataset '{CSV_FILENAME}' found locally.")
+        return
+
+    print(f"[DATA ENGINEER] ⬇️  Downloading dataset from CERN ({DATA_URL})...")
+    print("                 (This may take a minute...)")
     
     try:
-        # Load data
-        df = pd.read_csv(CSV_PATH)
-    except FileNotFoundError:
-        print(f"❌ ERROR: Could not find '{CSV_PATH}'.")
-        print("   Please download it from: http://opendata.cern.ch/record/328")
-        print("   And place it in this folder.")
+        # 1. Download the .gz file
+        response = requests.get(DATA_URL, stream=True)
+        if response.status_code == 200:
+            with open("temp_data.csv.gz", 'wb') as f:
+                f.write(response.content)
+        else:
+            print(f"❌ HTTP Error: {response.status_code}")
+            sys.exit(1)
+
+        # 2. Decompress it
+        print("[DATA ENGINEER] 📦 Decompressing GZIP...")
+        with gzip.open("temp_data.csv.gz", 'rb') as f_in:
+            with open(CSV_FILENAME, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        
+        # 3. Cleanup
+        os.remove("temp_data.csv.gz")
+        print("[DATA ENGINEER] ✅ Download & Extraction Complete.")
+
+    except Exception as e:
+        print(f"❌ Download Failed: {e}")
+        sys.exit(1)
+
+def process_higgs_data():
+    # --- STEP 0: ENSURE DATA EXISTS ---
+    download_and_extract()
+
+    print(f"[DATA ENGINEER] 🧹 Loading ATLAS Higgs Dataset...")
+    
+    try:
+        df = pd.read_csv(CSV_FILENAME)
+    except Exception as e:
+        print(f"❌ Read Error: {e}")
         sys.exit(1)
 
     # 1. CLEANING
     print("[DATA ENGINEER] 🏷️  Encoding Labels (s -> 1, b -> -1)...")
     le = LabelEncoder()
-    # Handle the fact that some versions of the CSV use 'Label' or 'Label '
+    # Handle column name variations
     label_col = 'Label' if 'Label' in df.columns else df.columns[-1]
     
-    df[label_col] = le.fit_transform(df[label_col]) # Maps to 0 and 1
-    y = 2 * df[label_col].values - 1 # Maps to -1 and 1 (Quantum format)
+    df[label_col] = le.fit_transform(df[label_col]) 
+    y = 2 * df[label_col].values - 1 
 
     # Drop non-physics columns
     drop_cols = ['EventId', 'Weight', 'Label', 'KaggleSet', 'KaggleWeight']
     cols_to_drop = [c for c in drop_cols if c in df.columns]
     X_raw = df.drop(columns=cols_to_drop).values
 
-    # Handle missing values (-999.0 is standard HEP code for missing)
+    # Handle missing values
     X_raw[X_raw == -999.0] = 0
 
     # 2. SAMPLING
-    # Shuffle and take a small slice for the simulation
     indices = np.random.choice(len(X_raw), size=min(SAMPLE_SIZE, len(X_raw)), replace=False)
     X_sample = X_raw[indices]
     y_sample = y[indices]
 
-    # 3. DIMENSIONALITY REDUCTION (PCA)
+    # 3. DIMENSIONALITY REDUCTION
     print(f"[DATA ENGINEER] 📉 Performing PCA (30 features -> 2 features)...")
     pca = PCA(n_components=2)
     X_pca = pca.fit_transform(X_sample)
@@ -55,17 +92,14 @@ def process_higgs_data():
     scaler = MinMaxScaler()
     X_scaled = scaler.fit_transform(X_pca)
 
-    # 5. DISTRIBUTE TO CLIENTS
+    # 5. DISTRIBUTE
     print(f"[DATA ENGINEER] 📦 Splitting data for {NUM_CLIENTS} clients...")
-    
-    # Split data into N chunks
     X_splits = np.array_split(X_scaled, NUM_CLIENTS)
     y_splits = np.array_split(y_sample, NUM_CLIENTS)
 
     for i in range(NUM_CLIENTS):
         filename = f"client_data_{i}.npz"
         np.savez(filename, X=X_splits[i], y=y_splits[i])
-        print(f"   -> Created {filename} ({len(y_splits[i])} events)")
 
     print("[DATA ENGINEER] ✅ Data Preparation Complete.\n")
 
