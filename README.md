@@ -55,7 +55,7 @@ Bash: streamlit run dashboard.py
 Ignite the Simulation:
 Bash: python orchestrator.py
 👨‍💻 Author Boboc Alexandru-Florin Final Year Student | Theoretical Physics & Computer Science | West University of Timisoara (UVT) | I am passionate about the intersection of High-Performance Computing, Quantum Mechanics, and Distributed Systems. This project serves as a proof-of-concept for my Bachelor's Thesis on secure quantum distributed networks.
-🌐 LinkedIn: [linkedin.com/in/your-profile-id](https://www.linkedin.com/in/alexandru-florin-boboc-a25a43266/)
+🌐 LinkedIn: (https://www.linkedin.com/in/alexandru-florin-boboc-a25a43266/)
 🐙 GitHub: github.com/BobocAlexFlorin
 📧 Email: bobocalexflorin@gmail.com
 Developed with ⚛️ and ☕ in Timisoara.
